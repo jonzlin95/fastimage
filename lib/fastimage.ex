@@ -37,12 +37,16 @@ defmodule Fastimage do
   """
   @spec size(url_or_file :: String.t) :: map | :unknown_type
   def size(url_or_file) do
-    {:ok, data, stream_ref} = recv(url_or_file)
-    bytes = :erlang.binary_part(data, {0, 2})
-    type = type(bytes, stream_ref, [close_stream: :false])
-    %{width: w, height: h} = size(type, data, stream_ref, url_or_file)
-    close_stream(stream_ref)
-    %{width: w, height: h}
+    case recv(url_or_file) do
+      {:ok, data, stream_ref} ->
+        bytes = :erlang.binary_part(data, {0, 2})
+        type = type(bytes, stream_ref, [close_stream: :false])
+        %{width: w, height: h} = size(type, data, stream_ref, url_or_file)
+        close_stream(stream_ref)
+        %{width: w, height: h}
+      {:error, error} ->
+        %{error: error}
+    end
   end
 
 
@@ -61,7 +65,6 @@ defmodule Fastimage do
 
   @spec recv(url_or_file :: String.t | URI.t) ::  {:ok, binary, stream_ref} | {:error, recv_error}
   defp recv(url_or_file) do
-    {:ok, _data, _stream_ref} =
     cond do
       is_url(url_or_file) == :true -> recv(url_or_file, :url, 0, 0)
       File.exists?(url_or_file) == :true -> recv(url_or_file, :file)
@@ -70,7 +73,7 @@ defmodule Fastimage do
     end
   end
   defp recv(_url, :url, num_redirects, _error_retries) when num_redirects > 3 do
-    raise("error, three redirects have already been attempted, are you sure this is the correct image uri?")
+    # raise("error, three redirects have already been attempted, are you sure this is the correct image uri?")
   end
   defp recv(url, :url, num_redirects, error_retries) do
     {:ok, stream_ref} = :hackney.get(url, [], <<>>, [{:async, :once}, {:follow_redirect, true}])
@@ -98,7 +101,7 @@ defmodule Fastimage do
             cond do
               status_code > 400 ->
                 "error, could not open image file with error #{status_code} due to reason, #{reason}"
-                |> raise()
+                
               :true ->
                 stream_chunks(stream_ref, num_chunks_to_fetch, {acc_num_chunks, acc_data, url}, num_redirects, error_retries)
             end
@@ -112,7 +115,7 @@ defmodule Fastimage do
           {:hackney_response, stream_ref, data} ->
             stream_chunks(stream_ref, num_chunks_to_fetch - 1, {acc_num_chunks + 1, <<acc_data::binary, data::binary>>, url}, num_redirects, error_retries)
           _ ->
-            "error, unexpected streaming error while streaming chunks" |> raise()
+            "error, unexpected streaming error while streaming chunks"
         after @stream_timeout ->
           error = "error, uri stream timeout #{@stream_timeout} exceeded"
           Og.log(error, __ENV__, :warn)
@@ -123,7 +126,7 @@ defmodule Fastimage do
                 recv(url, :url, num_redirects, error_retries + 1)
             :false ->
                 Og.log(error, __ENV__, :error)
-                error |> raise()
+                error
           end
         end
       :true -> {:error, :unexpected_http_streaming_error}
